@@ -1,0 +1,81 @@
+services:
+  # L1: Anvil node
+  # Using anvil 1.3.5 which is compatible with zkos-l1-state.json format
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:v1.3.5
+    container_name: zksync-anvil
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["anvil --load-state /app/zkos-l1-state.json --port 8545 --host 0.0.0.0"]
+    ports:
+      - "8545:8545"
+    volumes:
+      - ./zkos-l1-state.json:/app/zkos-l1-state.json:ro
+    networks:
+      - zksync-network
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # L2: ZKsync OS Server
+  zksync-os-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zksync-os-server
+    ports:
+      - "3050:3050"
+      - "3124:3124"
+      - "3312:3312"
+    volumes:
+      - ./db:/app/db
+    environment:
+      - general_l1_rpc_url=http://anvil:8545
+      - batcher_maximum_in_flight_blocks=15
+    networks:
+      - zksync-network
+    depends_on:
+      anvil:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/localhost/3050' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Block Explorer: Otterscan (L2)
+  # Matches the working setup from local_explorer.md:
+  # docker run --rm -p 5100:80 --name otterscan -d --env ERIGON_URL="http://127.0.0.1:3050" otterscan/otterscan
+  # ERIGON_URL must be accessible from the browser (not from container), so use localhost:3050
+  # The browser will connect to this URL when using the explorer UI
+  otterscan:
+    image: otterscan/otterscan:latest
+    container_name: zksync-otterscan
+    ports:
+      - "5100:80"
+    environment:
+      - ERIGON_URL=http://localhost:3050
+    depends_on:
+      zksync-os-server:
+        condition: service_healthy
+
+  # Block Explorer: Otterscan (L1)
+  # Explorer for the L1 (Anvil) node
+  otterscan-l1:
+    image: otterscan/otterscan:latest
+    container_name: zksync-otterscan-l1
+    ports:
+      - "5101:80"
+    environment:
+      - ERIGON_URL=http://localhost:8545
+    depends_on:
+      anvil:
+        condition: service_healthy
+
+networks:
+  zksync-network:
+    driver: bridge
+
+
