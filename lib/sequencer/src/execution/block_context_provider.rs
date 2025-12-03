@@ -120,7 +120,11 @@ impl<Mempool: L2TransactionPool> BlockContextProvider<Mempool> {
                 let timestamp = (millis_since_epoch() / 1000) as u64;
 
                 // Check if we peeked an upgrade transaction info.
-                let force_preimages = if let Some(Some(upgrade_tx)) = peeked_tx {
+                // It is possible that we peek an upgrade with version <= self.protocol_version
+                // since we do not consume patch upgrades when replaying/rebuilding blocks. Such upgrade can be safely skipped.
+                let force_preimages = if let Some(Some(upgrade_tx)) = peeked_tx
+                    && upgrade_tx.protocol_version > self.protocol_version
+                {
                     tracing::info!(
                         block_number = produce_command.block_number,
                         upgrade_tx = ?upgrade_tx,
@@ -224,11 +228,30 @@ impl<Mempool: L2TransactionPool> BlockContextProvider<Mempool> {
                 }
             }
             BlockCommand::Rebuild(rebuild) => {
+                let block_number = rebuild.replay_record.block_context.block_number;
+                let (execution_version, protocol_version) = (
+                    rebuild.replay_record.block_context.execution_version,
+                    rebuild.replay_record.protocol_version,
+                );
+
+                if rebuild.make_empty
+                    && rebuild
+                        .replay_record
+                        .transactions
+                        .iter()
+                        .any(|tx| matches!(tx.envelope(), ZkEnvelope::Upgrade(_)))
+                {
+                    anyhow::bail!(
+                        "Cannot make an empty block when there is an upgrade transaction in the replay record for block {}",
+                        block_number
+                    );
+                }
+
                 let block_context = BlockContext {
                     eip1559_basefee: rebuild.replay_record.block_context.eip1559_basefee,
                     native_price: rebuild.replay_record.block_context.native_price,
                     pubdata_price: rebuild.replay_record.block_context.pubdata_price,
-                    block_number: rebuild.replay_record.block_context.block_number,
+                    block_number,
                     timestamp: rebuild.replay_record.block_context.timestamp,
                     blob_fee: rebuild.replay_record.block_context.blob_fee,
                     chain_id: self.chain_id,
@@ -238,7 +261,7 @@ impl<Mempool: L2TransactionPool> BlockContextProvider<Mempool> {
                     pubdata_limit: self.pubdata_limit,
                     // todo: initialize as source of randomness, i.e. the value of prevRandao
                     mix_hash: Default::default(),
-                    execution_version: rebuild.replay_record.block_context.execution_version,
+                    execution_version,
                 };
                 let txs = if rebuild.make_empty {
                     Vec::new()
@@ -278,7 +301,7 @@ impl<Mempool: L2TransactionPool> BlockContextProvider<Mempool> {
                     metrics_label: "rebuild",
                     starting_l1_priority_id: self.next_l1_priority_id,
                     node_version: self.node_version.clone(),
-                    protocol_version: rebuild.replay_record.protocol_version,
+                    protocol_version,
                     expected_block_output_hash: None,
                     previous_block_timestamp: self.previous_block_timestamp,
                     force_preimages: rebuild.replay_record.force_preimages,
@@ -335,6 +358,8 @@ impl<Mempool: L2TransactionPool> BlockContextProvider<Mempool> {
         EXECUTION_METRICS
             .next_l1_priority_id
             .set(self.next_l1_priority_id);
+        // We update protocol version here, so that we take into account replay records with protocol version bumps.
+        self.protocol_version = replay_record.protocol_version.clone();
 
         // Advance `block_hashes_for_next_block`.
         let last_block_hash = block_output.header.hash();
