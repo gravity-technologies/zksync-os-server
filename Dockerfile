@@ -11,6 +11,12 @@ RUN cargo chef prepare --bin zksync-os-server --recipe-path recipe.json
 
 FROM chef AS builder
 
+# ---- app binaries path (optional override) ----
+# Allows passing pre-downloaded multivm app binaries into the build without
+# reaching out to the network. Defaults to the local copy in the repo.
+ARG ZKSYNC_OS_0_2_4_SOURCE_PATH=/app/lib/multivm/apps/v0.2.4
+ENV ZKSYNC_OS_0_2_4_SOURCE_PATH=${ZKSYNC_OS_0_2_4_SOURCE_PATH}
+
 # ---- build-time system libs ----
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libclang-19-dev && \
