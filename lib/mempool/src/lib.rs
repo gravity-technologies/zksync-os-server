@@ -44,6 +44,7 @@ pub fn in_memory<State: ReadStateHistory + Clone, Repository: ReadRepository + C
         RethPool::new(
             EthTransactionValidatorBuilder::new(client)
                 .no_prague()
+                .no_shanghai()
                 .with_max_tx_input_bytes(validator_config.max_input_bytes)
                 .build(blob_store),
             CoinbaseTipOrdering::default(),

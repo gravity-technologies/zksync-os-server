@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use zk_os_api::helpers::{get_balance, get_nonce};
 use zksync_os_storage_api::{ReadRepository, ReadStateHistory, ViewState};
+use reth_chainspec::{EthereumHardfork, ForkCondition};
 
 #[derive(Debug)]
 pub(crate) struct ZkClient<State, Repository> {
@@ -30,10 +31,10 @@ impl<State: ReadStateHistory, Repository: ReadRepository> ZkClient<State, Reposi
     pub(crate) fn new(state: State, repository: Repository, chain_id: u64) -> Self {
         let builder = ChainSpecBuilder::default()
             .chain(Chain::from(chain_id))
-            // Activate everything up to Cancun
-            // TODO: Does it make sense to active Cancun if we do not support 4844 transactions?
-            //       Maybe drop down to Shanghai?
-            .cancun_activated()
+            // keep Shanghai effectively disabled
+            .with_fork(EthereumHardfork::Shanghai, ForkCondition::Timestamp(u64::MAX))
+            // still mark Cancun as active (timestamp 0 here; adjust if you want later)
+            .with_fork(EthereumHardfork::Cancun, ForkCondition::Timestamp(0))
             // TODO: Genesis is not used by the mempool but wouldn't hurt to provide the real one
             //       once we can
             .genesis(Default::default());

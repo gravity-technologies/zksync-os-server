@@ -21,9 +21,10 @@ fn main() {
         }
         let tag = match parse_git_tag(&package.id) {
             Ok(tag) => tag,
-            Err(err) => {
-                println!("cargo::error=failed to parse forward_system's git tag: {err}");
-                return;
+            // TODO: don't forget to remove once zksync os realesed
+            Err(_) => {
+                println!("cargo:rustc-env=ZKSYNC_OS_v0_2_4_SOURCE_PATH={}/apps/v0.2.4", manifest_dir);
+                continue
             }
         };
 
